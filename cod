@@ -1,0 +1,820 @@
+"""
+EyeScan - Глаз следит за курсором мыши
+"""
+
+import tkinter as tk
+from tkinter import ttk, messagebox
+import json
+import os
+from datetime import datetime
+import math
+import webbrowser
+import random
+import time
+
+class Database:
+    def __init__(self):
+        self.filename = 'eyescan_data.json'
+        self.data = self.load_data()
+        self.fix_data_structure()
+    
+    def load_data(self):
+        if os.path.exists(self.filename):
+            try:
+                with open(self.filename, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return self.get_default_data()
+        return self.get_default_data()
+    
+    def get_default_data(self):
+        return {
+            'tests_history': [],
+            'user_profile': {'name': '', 'last_test_date': '', 'created_at': str(datetime.now())},
+            'user_location': {'city': 'Москва'}
+        }
+    
+    def fix_data_structure(self):
+        needs_save = False
+        if 'user_location' not in self.data:
+            self.data['user_location'] = {'city': 'Москва'}
+            needs_save = True
+        if 'tests_history' not in self.data:
+            self.data['tests_history'] = []
+            needs_save = True
+        if 'user_profile' not in self.data:
+            self.data['user_profile'] = {'name': '', 'last_test_date': '', 'created_at': str(datetime.now())}
+            needs_save = True
+        if needs_save:
+            self.save_data()
+    
+    def save_data(self):
+        with open(self.filename, 'w', encoding='utf-8') as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+    
+    def save_test_result(self, test_type, result, details=""):
+        self.data['tests_history'].append({
+            'date': str(datetime.now()),
+            'test_type': test_type,
+            'result': result,
+            'details': details
+        })
+        self.data['user_profile']['last_test_date'] = str(datetime.now())
+        self.save_data()
+    
+    def get_history(self):
+        return self.data.get('tests_history', [])
+    
+    def save_user_name(self, name):
+        self.data['user_profile']['name'] = name
+        self.save_data()
+    
+    def get_user_name(self):
+        return self.data.get('user_profile', {}).get('name', '')
+    
+    def save_user_city(self, city):
+        self.data['user_location']['city'] = city
+        self.save_data()
+    
+    def get_user_city(self):
+        return self.data.get('user_location', {}).get('city', 'Москва')
+
+
+class TrackingEye(tk.Canvas):
+    """Глаз, который следит за курсором мыши"""
+    
+    def __init__(self, parent, size=90):
+        super().__init__(parent, width=size, height=size, highlightthickness=0, bg=parent.cget('bg'))
+        self.size = size
+        self.center_x = size // 2
+        self.center_y = size // 2
+        self.max_offset = 12  # Максимальное смещение зрачка
+        
+        # Рисуем глаз
+        self.draw_eye()
+        
+        # Привязываем движение мыши
+        self.bind("<Motion>", self.on_mouse_move)
+        # Также следим за движением мыши на родительском виджете
+        parent.bind("<Motion>", self.on_mouse_move)
+    
+    def draw_eye(self):
+        self.delete("all")
+        
+        # Белок глаза
+        self.create_oval(self.center_x-38, self.center_y-33, self.center_x+38, self.center_y+33, 
+                        fill='white', outline='#3b82f6', width=4)
+        
+        # Радужка (внешняя)
+        self.iris = self.create_oval(self.center_x-16, self.center_y-14, self.center_x+16, self.center_y+14, 
+                                     fill='#3b82f6', outline='#2563eb', width=2)
+        
+        # Зрачок (будет двигаться)
+        self.pupil = self.create_oval(self.center_x-7, self.center_y-6, self.center_x+7, self.center_y+6, 
+                                      fill='#1e3a8a')
+        
+        # Блик
+        self.create_oval(self.center_x-3, self.center_y-10, self.center_x+2, self.center_y-5, fill='white')
+        
+        # Верхние ресницы для красоты
+        self.create_line(self.center_x-38, self.center_y-33, self.center_x-48, self.center_y-43, 
+                        width=3, fill='#3b82f6')
+        self.create_line(self.center_x-28, self.center_y-36, self.center_x-36, self.center_y-48, 
+                        width=3, fill='#3b82f6')
+        self.create_line(self.center_x+38, self.center_y-33, self.center_x+48, self.center_y-43, 
+                        width=3, fill='#3b82f6')
+        self.create_line(self.center_x+28, self.center_y-36, self.center_x+36, self.center_y-48, 
+                        width=3, fill='#3b82f6')
+    
+    def on_mouse_move(self, event):
+        # Получаем координаты курсора относительно холста
+        x = event.x
+        y = event.y
+        
+        # Если курсор за пределами холста, используем центр
+        if x < 0 or x > self.size or y < 0 or y > self.size:
+            # Возвращаем зрачок в центр
+            self.move_pupil(self.center_x, self.center_y)
+            return
+        
+        # Вычисляем направление от центра к курсору
+        dx = x - self.center_x
+        dy = y - self.center_y
+        
+        # Нормализуем вектор и ограничиваем смещение
+        distance = math.sqrt(dx*dx + dy*dy)
+        if distance > 0:
+            dx = dx / distance
+            dy = dy / distance
+        
+        # Смещаем зрачок
+        offset_x = int(dx * self.max_offset)
+        offset_y = int(dy * self.max_offset)
+        
+        # Ограничиваем, чтобы зрачок не выходил за пределы радужки
+        offset_x = max(-10, min(10, offset_x))
+        offset_y = max(-8, min(8, offset_y))
+        
+        # Двигаем зрачок
+        self.move_pupil(self.center_x + offset_x, self.center_y + offset_y)
+    
+    def move_pupil(self, new_x, new_y):
+        """Перемещает зрачок в указанные координаты"""
+        self.coords(self.pupil, new_x-7, new_y-6, new_x+7, new_y+6)
+
+
+class ColorTest(tk.Frame):
+    """Тест на цветовосприятие"""
+    
+    def __init__(self, parent, on_complete):
+        super().__init__(parent, bg='#0f172a')
+        self.on_complete = on_complete
+        self.current_q = 0
+        self.answers = []
+        
+        self.questions = [
+            {"text": "Какую цифру вы видите на цветных кругах?", "correct": "12", 
+             "options": ["12", "3", "8", "96"], "colors": ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"], "value": "12"},
+            {"text": "Какую цифру вы видите?", "correct": "8", 
+             "options": ["8", "3", "5", "2"], "colors": ["#FF6347", "#4682B4", "#32CD32", "#FFD700"], "value": "8"},
+            {"text": "Какую цифру вы видите?", "correct": "3", 
+             "options": ["3", "8", "5", "2"], "colors": ["#FF4500", "#1E90FF", "#DC143C", "#FF69B4"], "value": "3"},
+            {"text": "Какое число вы видите?", "correct": "96", 
+             "options": ["96", "69", "6", "9"], "colors": ["#8B0000", "#006400", "#00008B", "#800080"], "value": "96"},
+            {"text": "Какую фигуру вы видите?", "correct": "Треугольник", 
+             "options": ["Треугольник", "Круг", "Квадрат", "Ромб"], "colors": ["#FF0000", "#00FF00", "#0000FF", "#FF00FF"], "shape": "triangle"},
+            {"text": "Какую фигуру вы видите?", "correct": "Круг", 
+             "options": ["Круг", "Треугольник", "Квадрат", "Ромб"], "colors": ["#FF6347", "#32CD32", "#FFD700", "#9B59B6"], "shape": "circle"},
+            {"text": "Какую фигуру вы видите?", "correct": "Квадрат", 
+             "options": ["Квадрат", "Круг", "Треугольник", "Ромб"], "colors": ["#FF4500", "#1E90FF", "#DC143C", "#FF69B4"], "shape": "square"},
+            {"text": "Какую фигуру вы видите?", "correct": "Ромб", 
+             "options": ["Ромб", "Круг", "Квадрат", "Треугольник"], "colors": ["#8B0000", "#006400", "#00008B", "#800080"], "shape": "diamond"},
+        ]
+        
+        self.setup_ui()
+        self.show_question()
+    
+    def setup_ui(self):
+        header = tk.Frame(self, bg='#06b6d4', height=50)
+        header.pack(fill=tk.X, pady=(0, 15))
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="🎨 ТЕСТ НА ЦВЕТОВОСПРИЯТИЕ", 
+                font=('Segoe UI', 13, 'bold'), fg='white', bg='#06b6d4').pack(side=tk.LEFT, padx=15)
+        
+        tk.Button(header, text="✕", font=('Segoe UI', 14, 'bold'), fg='white', bg='#06b6d4',
+                 relief=tk.FLAT, command=self.exit_test, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        
+        self.progress_label = tk.Label(self, text="Вопрос 1 из 8", font=('Segoe UI', 11),
+                                       bg='#0f172a', fg='#94a3b8')
+        self.progress_label.pack(pady=5)
+        
+        self.question_label = tk.Label(self, text="", font=('Segoe UI', 13, 'bold'),
+                                       bg='#0f172a', fg='#FFD700', wraplength=420)
+        self.question_label.pack(pady=10)
+        
+        canvas_frame = tk.Frame(self, bg='#1e293b')
+        canvas_frame.pack(pady=10, padx=15, fill=tk.X)
+        
+        self.canvas = tk.Canvas(canvas_frame, width=420, height=140, bg='#1e293b', highlightthickness=0)
+        self.canvas.pack(pady=15)
+        
+        self.options_frame = tk.Frame(self, bg='#0f172a')
+        self.options_frame.pack(pady=15)
+    
+    def draw_figure(self, pos, shape_type):
+        if shape_type == "triangle":
+            points = [pos, 35, pos-20, 90, pos+20, 90]
+            self.canvas.create_polygon(points, fill='#FFD700', outline='white', width=2)
+        elif shape_type == "circle":
+            self.canvas.create_oval(pos-18, 52, pos+18, 88, fill='#FF4500', outline='white', width=2)
+        elif shape_type == "square":
+            self.canvas.create_rectangle(pos-18, 52, pos+18, 88, fill='#FF4500', outline='white', width=2)
+        elif shape_type == "diamond":
+            points = [pos, 52, pos+18, 70, pos, 88, pos-18, 70]
+            self.canvas.create_polygon(points, fill='#FF4500', outline='white', width=2)
+    
+    def show_question(self):
+        q = self.questions[self.current_q]
+        self.question_label.config(text=q["text"])
+        self.progress_label.config(text=f"📋 Вопрос {self.current_q + 1} из {len(self.questions)}")
+        
+        self.canvas.delete("all")
+        positions = [60, 150, 240, 330]
+        
+        for i, (pos, color) in enumerate(zip(positions, q["colors"])):
+            self.canvas.create_oval(pos-35, 20, pos+35, 120, fill=color, outline='white', width=2)
+        
+        if "value" in q:
+            if q["value"] == "96":
+                self.canvas.create_text(95, 70, text="9", font=('Arial', 22, 'bold'), fill='white')
+                self.canvas.create_text(295, 70, text="6", font=('Arial', 22, 'bold'), fill='white')
+            else:
+                for pos in positions:
+                    self.canvas.create_text(pos, 70, text=q["value"], font=('Arial', 22, 'bold'), fill='white')
+        else:
+            for pos in positions:
+                self.draw_figure(pos, q["shape"])
+        
+        for w in self.options_frame.winfo_children():
+            w.destroy()
+        
+        for i, opt in enumerate(q["options"]):
+            btn = tk.Button(self.options_frame, text=opt, font=('Segoe UI', 12, 'bold'),
+                           command=lambda o=opt: self.answer(o),
+                           width=10, relief=tk.RAISED, bg='#1e293b', 
+                           fg='#f1f5f9', cursor="hand2", padx=10, pady=8)
+            btn.grid(row=i//2, column=i%2, padx=10, pady=8)
+    
+    def answer(self, answer):
+        self.answers.append(answer)
+        self.current_q += 1
+        
+        if self.current_q < len(self.questions):
+            self.show_question()
+        else:
+            self.complete_test()
+    
+    def complete_test(self):
+        correct = sum(1 for i, a in enumerate(self.answers) 
+                     if a == self.questions[i]["correct"])
+        self.on_complete(correct, len(self.questions), self.questions, self.answers)
+    
+    def exit_test(self):
+        if messagebox.askyesno("Выход", "Прервать тест?"):
+            self.on_complete(0, 0, None, None, exit_test=True)
+
+
+class ResultWindow:
+    @staticmethod
+    def show(parent, questions, user_answers, correct_count):
+        window = tk.Toplevel(parent)
+        window.title("Результаты теста")
+        window.geometry("500x600")
+        window.configure(bg='#0f172a')
+        window.transient(parent)
+        window.grab_set()
+        
+        header = tk.Frame(window, bg='#3b82f6', height=60)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        tk.Label(header, text="📊 РЕЗУЛЬТАТЫ ТЕСТА", font=('Segoe UI', 16, 'bold'),
+                fg='white', bg='#3b82f6').pack(pady=15)
+        
+        total = len(questions)
+        percentage = (correct_count / total) * 100
+        
+        stats_frame = tk.Frame(window, bg='#1e293b')
+        stats_frame.pack(fill=tk.X, pady=10, padx=15, ipady=10)
+        
+        if percentage >= 80:
+            color = '#10b981'
+            status = "✅ НОРМАЛЬНОЕ ЦВЕТОВОСПРИЯТИЕ"
+        elif percentage >= 60:
+            color = '#f59e0b'
+            status = "⚠️ ЛЕГКИЕ НАРУШЕНИЯ"
+        elif percentage >= 40:
+            color = '#f97316'
+            status = "⚠️ СРЕДНИЕ НАРУШЕНИЯ"
+        else:
+            color = '#ef4444'
+            status = "🔴 ВЫРАЖЕННЫЕ НАРУШЕНИЯ"
+        
+        tk.Label(stats_frame, text=status, font=('Segoe UI', 16, 'bold'),
+                fg=color, bg='#1e293b').pack()
+        tk.Label(stats_frame, text=f"Правильных ответов: {correct_count} из {total} ({int(percentage)}%)",
+                font=('Segoe UI', 12), fg='#94a3b8', bg='#1e293b').pack(pady=5)
+        
+        canvas = tk.Canvas(window, bg='#0f172a', highlightthickness=0)
+        scrollbar = tk.Scrollbar(window, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#0f172a')
+        
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=470)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        tk.Label(scrollable_frame, text="📋 ПОДРОБНЫЙ РАЗБОР:", 
+                font=('Segoe UI', 14, 'bold'), fg='#3b82f6', bg='#0f172a').pack(anchor='w', pady=(10, 5), padx=10)
+        
+        for i, (q, user_ans) in enumerate(zip(questions, user_answers)):
+            is_correct = (user_ans == q["correct"])
+            card = tk.Frame(scrollable_frame, bg='#1e293b')
+            card.pack(fill=tk.X, pady=5, padx=10)
+            
+            status_text = "✅" if is_correct else "❌"
+            status_color = "#10b981" if is_correct else "#ef4444"
+            
+            tk.Label(card, text=f"{status_text} Вопрос {i+1}", 
+                    font=('Segoe UI', 11, 'bold'), fg=status_color, bg='#1e293b').pack(anchor='w', padx=10, pady=5)
+            tk.Label(card, text=f"✓ Правильный ответ: {q['correct']}", 
+                    font=('Segoe UI', 10), fg='#10b981', bg='#1e293b').pack(anchor='w', padx=10)
+            tk.Label(card, text=f"✗ Ваш ответ: {user_ans}", font=('Segoe UI', 10),
+                    fg=status_color, bg='#1e293b').pack(anchor='w', padx=10, pady=(0, 8))
+        
+        canvas.pack(side="left", fill="both", expand=True, padx=10)
+        scrollbar.pack(side="right", fill="y")
+        
+        tk.Button(window, text="ЗАКРЫТЬ", font=('Segoe UI', 12, 'bold'),
+                 bg='#3b82f6', fg='white', command=window.destroy,
+                 cursor="hand2", relief=tk.FLAT, pady=8).pack(pady=15, fill=tk.X, padx=30)
+
+
+class EyeScanApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("EyeScan")
+        self.root.geometry("480x850")
+        self.root.configure(bg='#0f172a')
+        self.root.overrideredirect(True)
+        
+        self.db = Database()
+        self.current_frame = None
+        self.test_active = False
+        
+        self.colors = {
+            'bg': '#0f172a', 'card_bg': '#1e293b', 'primary': '#3b82f6',
+            'success': '#10b981', 'warning': '#f59e0b', 'danger': '#ef4444',
+            'info': '#06b6d4', 'purple': '#8b5cf6', 'pink': '#ec4899',
+            'text': '#f1f5f9', 'text_light': '#94a3b8',
+        }
+        
+        self.all_cities = ["Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань"]
+        
+        self.clinics_db = {
+            "Москва": [
+                {"name": "НИИ глазных болезней им. Гельмгольца", 
+                 "address": "ул. Садовая-Черногрязская, 14/19",
+                 "phone": "+7 (495) 625-33-50",
+                 "hours": "Пн-Пт: 8:00-20:00",
+                 "url": "https://yandex.ru/maps/213/moscow/house/sadovaya-chernogryazskaya_ulitsa_14_19/"}
+            ],
+            "Санкт-Петербург": [
+                {"name": "СПб НИИ уха, горла, носа и речи", 
+                 "address": "ул. Бронницкая, 9",
+                 "phone": "+7 (812) 316-85-70",
+                 "hours": "Пн-Пт: 8:30-17:30",
+                 "url": "https://yandex.ru/maps/2/saint-petersburg/house/bronnitskaya_ulitsa_9/"}
+            ]
+        }
+        
+        self.create_title_bar()
+        self.main_frame = tk.Frame(root, bg=self.colors['bg'])
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
+        self.show_main_menu()
+        self.update_time()
+    
+    def create_title_bar(self):
+        title_bar = tk.Frame(self.root, bg=self.colors['primary'], height=50)
+        title_bar.pack(fill=tk.X)
+        title_bar.pack_propagate(False)
+        
+        self.time_label = tk.Label(title_bar, font=('Segoe UI', 12, 'bold'), fg='white', bg=self.colors['primary'])
+        self.time_label.pack(side=tk.LEFT, padx=15, pady=12)
+        
+        tk.Label(title_bar, text="EyeScan", font=('Segoe UI', 18, 'bold'), fg='white', bg=self.colors['primary']).pack(side=tk.LEFT, expand=True)
+        
+        tk.Button(title_bar, text="✕", font=('Segoe UI', 14, 'bold'), fg='white', bg=self.colors['primary'],
+                 relief=tk.FLAT, command=self.animate_exit, cursor="hand2").pack(side=tk.RIGHT, padx=15, pady=8)
+        
+        tk.Button(title_bar, text="−", font=('Segoe UI', 16, 'bold'), fg='white', bg=self.colors['primary'],
+                 relief=tk.FLAT, command=self.minimize_window, cursor="hand2").pack(side=tk.RIGHT, padx=5, pady=8)
+        
+        title_bar.bind("<Button-1>", self.start_move)
+        title_bar.bind("<B1-Motion>", self.on_move)
+    
+    def start_move(self, event):
+        self.x = event.x
+        self.y = event.y
+    
+    def on_move(self, event):
+        deltax = event.x - self.x
+        deltay = event.y - self.y
+        x = self.root.winfo_x() + deltax
+        y = self.root.winfo_y() + deltay
+        self.root.geometry(f"+{x}+{y}")
+    
+    def minimize_window(self):
+        self.root.iconify()
+    
+    def animate_exit(self):
+        alpha = 1
+        def fade_out():
+            nonlocal alpha
+            alpha -= 0.05
+            if alpha >= 0:
+                self.root.attributes('-alpha', alpha)
+                self.root.after(20, fade_out)
+            else:
+                self.root.quit()
+        fade_out()
+    
+    def update_time(self):
+        self.time_label.config(text=time.strftime("%H:%M"))
+        self.root.after(1000, self.update_time)
+    
+    def clear_frame(self):
+        if self.current_frame:
+            self.current_frame.destroy()
+        self.current_frame = tk.Frame(self.main_frame, bg=self.colors['bg'])
+        self.current_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+    
+    def show_main_menu(self):
+        self.clear_frame()
+        self.test_active = False
+        
+        logo_frame = tk.Frame(self.current_frame, bg=self.colors['bg'])
+        logo_frame.pack(pady=(0, 15))
+        
+        # Анимированный следящий глаз
+        self.tracking_eye = TrackingEye(logo_frame, size=90)
+        self.tracking_eye.pack()
+        
+        tk.Label(logo_frame, text="EyeScan", font=('Segoe UI', 28, 'bold'),
+                bg=self.colors['bg'], fg=self.colors['primary']).pack()
+        tk.Label(logo_frame, text="Скрининг зрения", font=('Segoe UI', 12),
+                bg=self.colors['bg'], fg=self.colors['text_light']).pack()
+        
+        name = self.db.get_user_name()
+        welcome = tk.Frame(self.current_frame, bg=self.colors['card_bg'])
+        welcome.pack(fill=tk.X, pady=15, ipady=10)
+        
+        tk.Label(welcome, text=f"👋 {name}!" if name else "👋 Добро пожаловать!",
+                font=('Segoe UI', 16, 'bold'), bg=self.colors['card_bg'], fg=self.colors['text']).pack()
+        
+        history = self.db.get_history()
+        tk.Label(welcome, text=f"📊 Пройдено тестов: {len(history)}",
+                font=('Segoe UI', 11), bg=self.colors['card_bg'], fg=self.colors['text_light']).pack()
+        
+        tk.Button(welcome, text="✏️ Редактировать имя", font=('Segoe UI', 10),
+                 bg=self.colors['primary'], fg='white', command=self.enter_name,
+                 relief=tk.FLAT, cursor="hand2", padx=15, pady=5).pack(pady=(10, 5))
+        
+        buttons = [
+            ("🎨", "Тест на цветовосприятие", self.show_color_test, self.colors['info']),
+            ("👁️", "Тест на остроту зрения", self.show_acuity_test, self.colors['success']),
+            ("⭐", "Тест на астигматизм", self.show_astigmatism_test, self.colors['warning']),
+            ("📔", "Дневник зрения", self.show_diary, self.colors['purple']),
+            ("🏥", "Поиск клиник", self.show_clinics, self.colors['danger']),
+            ("🧘", "Гимнастика для глаз", self.show_exercises, self.colors['pink'])
+        ]
+        
+        for icon, text, cmd, color in buttons:
+            btn = tk.Button(self.current_frame, text=f"{icon} {text}", font=('Segoe UI', 12, 'bold'),
+                           bg=color, fg='white', command=cmd, cursor="hand2", relief=tk.FLAT, pady=8)
+            btn.pack(fill=tk.X, pady=6)
+    
+    def enter_name(self):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Профиль")
+        dialog.geometry("350x180")
+        dialog.configure(bg=self.colors['card_bg'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        tk.Label(dialog, text="Ваше имя", font=('Segoe UI', 14, 'bold'),
+                bg=self.colors['card_bg'], fg=self.colors['text']).pack(pady=(25, 10))
+        
+        entry = tk.Entry(dialog, font=('Segoe UI', 12), width=25,
+                        bg=self.colors['bg'], fg=self.colors['text'], insertbackground='white')
+        entry.pack(pady=5, padx=20)
+        entry.focus()
+        
+        def save():
+            name = entry.get().strip()
+            if name:
+                self.db.save_user_name(name)
+                messagebox.showinfo("Успех", "Имя сохранено!")
+                dialog.destroy()
+                self.show_main_menu()
+        
+        tk.Button(dialog, text="Сохранить", command=save,
+                 bg=self.colors['primary'], fg='white', font=('Segoe UI', 11),
+                 cursor="hand2", padx=30, pady=8, relief=tk.FLAT).pack(pady=20)
+        entry.bind('<Return>', lambda e: save())
+    
+    def on_color_test_complete(self, correct, total, questions, answers, exit_test=False):
+        if exit_test:
+            self.test_active = False
+            self.show_main_menu()
+            return
+        
+        if total > 0:
+            if correct >= 7:
+                result = "✅ Нормальное цветовосприятие"
+            elif correct >= 5:
+                result = "⚠️ Лёгкие нарушения цветовосприятия"
+            elif correct >= 3:
+                result = "⚠️ Умеренные нарушения цветовосприятия"
+            else:
+                result = "🔴 Выраженные нарушения цветовосприятия (возможен дальтонизм)"
+            
+            self.db.save_test_result("Цветовосприятие", result, f"{correct}/{total}")
+            ResultWindow.show(self.root, questions, answers, correct)
+        
+        self.test_active = False
+        self.show_main_menu()
+    
+    def show_color_test(self):
+        self.clear_frame()
+        self.test_active = True
+        test_frame = ColorTest(self.current_frame, self.on_color_test_complete)
+        test_frame.pack(fill=tk.BOTH, expand=True)
+    
+    def show_acuity_test(self):
+        self.clear_frame()
+        self.test_active = True
+        
+        header = tk.Frame(self.current_frame, bg=self.colors['success'], height=50)
+        header.pack(fill=tk.X, pady=(0, 15))
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="👁️ ТЕСТ НА ОСТРОТУ ЗРЕНИЯ", font=('Segoe UI', 13, 'bold'),
+                fg='white', bg=self.colors['success']).pack(side=tk.LEFT, padx=15)
+        
+        tk.Button(header, text="✕", font=('Segoe UI', 14, 'bold'), fg='white', bg=self.colors['success'],
+                 relief=tk.FLAT, command=self.exit_test, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        
+        tk.Label(self.current_frame, text="📱 Держите телефон на расстоянии 33 см от глаз",
+                font=('Segoe UI', 11), bg=self.colors['bg'], fg=self.colors['text_light']).pack(pady=5)
+        
+        self.acuity_table = [("Ш   Б", 1.0, 30), ("М   Н   К", 0.9, 26), ("Ы   М   Б   Ш", 0.8, 22),
+                             ("Б   Ы   Н   К", 0.7, 19), ("Н   К   И   М", 0.6, 17), ("Ш   И   Н   Б", 0.5, 15)]
+        self.selected_acuity = None
+        
+        table = tk.Frame(self.current_frame, bg=self.colors['card_bg'])
+        table.pack(pady=10, padx=15, fill=tk.BOTH, expand=True)
+        
+        for letters, acuity, fs in self.acuity_table:
+            btn = tk.Button(table, text=letters, font=('Arial', fs, 'bold'), bg=self.colors['card_bg'],
+                           fg=self.colors['text'], relief=tk.FLAT, cursor="hand2",
+                           command=lambda a=acuity: self.select_acuity(a))
+            btn.pack(pady=5)
+            tk.Label(table, text=f"📊 Острота: {acuity}", font=('Segoe UI', 9), 
+                    bg=self.colors['card_bg'], fg=self.colors['text_light']).pack()
+        
+        tk.Button(self.current_frame, text="✅ ЗАВЕРШИТЬ ТЕСТ", font=('Segoe UI', 12, 'bold'),
+                 bg=self.colors['success'], fg='white', command=self.complete_acuity_test,
+                 cursor="hand2", relief=tk.FLAT, pady=10).pack(pady=15, fill=tk.X, padx=30)
+    
+    def select_acuity(self, acuity):
+        self.selected_acuity = acuity
+        messagebox.showinfo("Выбрано", f"👁️ Острота зрения: {acuity}")
+    
+    def complete_acuity_test(self):
+        if not self.test_active:
+            return
+        if self.selected_acuity:
+            result = f"Острота зрения: {self.selected_acuity}"
+            self.db.save_test_result("Острота зрения", result)
+            messagebox.showinfo("Результат", result)
+        else:
+            if messagebox.askyesno("Внимание", "Завершить без результата?"):
+                pass
+            else:
+                return
+        self.test_active = False
+        self.show_main_menu()
+    
+    def exit_test(self):
+        if messagebox.askyesno("Выход", "Прервать тест?"):
+            self.test_active = False
+            self.show_main_menu()
+    
+    def show_astigmatism_test(self):
+        self.clear_frame()
+        self.test_active = True
+        
+        header = tk.Frame(self.current_frame, bg=self.colors['warning'], height=50)
+        header.pack(fill=tk.X, pady=(0, 15))
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="⭐ ТЕСТ НА АСТИГМАТИЗМ", font=('Segoe UI', 13, 'bold'),
+                fg='white', bg=self.colors['warning']).pack(side=tk.LEFT, padx=15)
+        
+        tk.Button(header, text="✕", font=('Segoe UI', 14, 'bold'), fg='white', bg=self.colors['warning'],
+                 relief=tk.FLAT, command=self.exit_test, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        
+        star_frame = tk.Frame(self.current_frame, bg='white', width=350, height=350)
+        star_frame.pack(pady=20)
+        star_frame.pack_propagate(False)
+        
+        canvas = tk.Canvas(star_frame, width=350, height=350, bg='white', highlightthickness=1)
+        canvas.pack()
+        
+        cx, cy = 175, 175
+        radius = 150
+        for i in range(24):
+            angle = i * 15
+            rad = math.radians(angle)
+            x = cx + radius * math.cos(rad)
+            y = cy + radius * math.sin(rad)
+            canvas.create_line(cx, cy, x, y, width=2, fill='black')
+        
+        canvas.create_oval(cx-10, cy-10, cx+10, cy+10, fill='white', outline='black', width=2)
+        
+        btn_frame = tk.Frame(self.current_frame, bg=self.colors['bg'])
+        btn_frame.pack(pady=20)
+        
+        tk.Button(btn_frame, text="✅ ДА, ВСЕ ЛИНИИ ОДИНАКОВЫЕ", font=('Segoe UI', 11, 'bold'),
+                 command=lambda: self.check_astigmatism(True), cursor="hand2",
+                 bg=self.colors['success'], fg='white', padx=15, pady=8, relief=tk.FLAT).pack(side=tk.LEFT, padx=10)
+        
+        tk.Button(btn_frame, text="❌ НЕТ, ЛИНИИ РАЗНЫЕ", font=('Segoe UI', 11, 'bold'),
+                 command=lambda: self.check_astigmatism(False), cursor="hand2",
+                 bg=self.colors['danger'], fg='white', padx=15, pady=8, relief=tk.FLAT).pack(side=tk.LEFT, padx=10)
+    
+    def check_astigmatism(self, same):
+        if not self.test_active:
+            return
+        result = "✅ Признаков астигматизма не выявлено" if same else "⚠️ Выявлены признаки астигматизма"
+        self.db.save_test_result("Астигматизм", result)
+        messagebox.showinfo("Результат", result)
+        self.test_active = False
+        self.show_main_menu()
+    
+    def show_diary(self):
+        self.clear_frame()
+        
+        header = tk.Frame(self.current_frame, bg=self.colors['purple'], height=50)
+        header.pack(fill=tk.X, pady=(0, 15))
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="📔 ДНЕВНИК ЗРЕНИЯ", font=('Segoe UI', 13, 'bold'),
+                fg='white', bg=self.colors['purple']).pack(side=tk.LEFT, padx=15)
+        
+        tk.Button(header, text="←", font=('Segoe UI', 14, 'bold'), fg='white', bg=self.colors['purple'],
+                 relief=tk.FLAT, command=self.show_main_menu, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        
+        history = self.db.get_history()
+        
+        stats = tk.Frame(self.current_frame, bg=self.colors['card_bg'])
+        stats.pack(fill=tk.X, pady=10, ipady=15)
+        
+        tk.Label(stats, text="📊 СТАТИСТИКА", font=('Segoe UI', 16, 'bold'),
+                bg=self.colors['card_bg'], fg=self.colors['purple']).pack()
+        tk.Label(stats, text=f"Всего тестов: {len(history)}", font=('Segoe UI', 13),
+                bg=self.colors['card_bg'], fg=self.colors['text']).pack(pady=5)
+        
+        if history:
+            last = history[-1]['date'][:19]
+            tk.Label(stats, text=f"Последний тест: {last}", font=('Segoe UI', 10),
+                    bg=self.colors['card_bg'], fg=self.colors['text_light']).pack()
+        
+        tk.Button(self.current_frame, text="📜 ИСТОРИЯ ТЕСТОВ", font=('Segoe UI', 12, 'bold'),
+                 bg=self.colors['purple'], fg='white', command=self.show_history,
+                 cursor="hand2", relief=tk.FLAT, pady=8).pack(pady=15, fill=tk.X, padx=30)
+    
+    def show_history(self):
+        history = self.db.get_history()
+        if not history:
+            messagebox.showinfo("История", "История тестов пуста")
+            return
+        text = "📜 ИСТОРИЯ ТЕСТОВ 📜\n\n"
+        for i, test in enumerate(reversed(history), 1):
+            text += f"{i}. {test['date'][:16]}\n   {test['test_type']}: {test['result']}\n"
+            if test.get('details'):
+                text += f"   📝 {test['details']}\n"
+            text += "\n"
+        messagebox.showinfo("История тестов", text)
+    
+    def show_exercises(self):
+        exercises = """👁️ ГИМНАСТИКА ДЛЯ ГЛАЗ
+
+1. 💪 Зажмурьтесь на 5 секунд (5-7 раз)
+2. 🦋 Быстро моргайте 30 секунд (3 раза)
+3. 🎯 Смотрите вдаль 10 сек → на нос 10 сек (10 раз)
+4. 🔄 Круговые движения глазами (10 раз)
+5. 📐 Движения вверх-вниз, влево-вправо (10 раз)
+6. ✨ Массаж век 30 секунд
+7. 🌈 Расслабление 1-2 минуты"""
+        messagebox.showinfo("Гимнастика для глаз", exercises)
+    
+    def show_clinics(self):
+        self.clear_frame()
+        
+        header = tk.Frame(self.current_frame, bg=self.colors['danger'], height=50)
+        header.pack(fill=tk.X, pady=(0, 15))
+        header.pack_propagate(False)
+        
+        tk.Label(header, text="🏥 ПОИСК КЛИНИК", font=('Segoe UI', 13, 'bold'),
+                fg='white', bg=self.colors['danger']).pack(side=tk.LEFT, padx=15)
+        
+        tk.Button(header, text="←", font=('Segoe UI', 14, 'bold'), fg='white', bg=self.colors['danger'],
+                 relief=tk.FLAT, command=self.show_main_menu, cursor="hand2").pack(side=tk.RIGHT, padx=15)
+        
+        city_frame = tk.Frame(self.current_frame, bg=self.colors['card_bg'])
+        city_frame.pack(fill=tk.X, pady=10, padx=10, ipady=10)
+        
+        tk.Label(city_frame, text="📍 ВЫБЕРИТЕ ВАШ ГОРОД", font=('Segoe UI', 13, 'bold'),
+                bg=self.colors['card_bg'], fg=self.colors['text']).pack(pady=10)
+        
+        self.city_var = tk.StringVar(value=self.db.get_user_city())
+        city_combo = ttk.Combobox(city_frame, textvariable=self.city_var,
+                                  values=self.all_cities, font=('Segoe UI', 11),
+                                  state='readonly', width=30)
+        city_combo.pack(pady=5, padx=20)
+        
+        tk.Label(city_frame, text=f"📋 Всего городов: {len(self.all_cities)}", 
+                font=('Segoe UI', 9), bg=self.colors['card_bg'], fg=self.colors['text_light']).pack(pady=5)
+        
+        tk.Button(self.current_frame, text="🔍 НАЙТИ КЛИНИКИ", font=('Segoe UI', 12, 'bold'),
+                 bg=self.colors['danger'], fg='white', command=self.search_clinics,
+                 cursor="hand2", relief=tk.FLAT, pady=10).pack(pady=20, fill=tk.X, padx=30)
+        
+        self.results_frame = tk.Frame(self.current_frame, bg=self.colors['bg'])
+        self.results_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        
+        info = tk.Label(self.results_frame, text="🏥 ВЫБЕРИТЕ ГОРОД И НАЖМИТЕ\n'НАЙТИ КЛИНИКИ'",
+                       font=('Segoe UI', 12), bg=self.colors['bg'], fg=self.colors['text_light'], justify=tk.CENTER)
+        info.pack(pady=50)
+    
+    def search_clinics(self):
+        city = self.city_var.get()
+        if not city:
+            messagebox.showwarning("Внимание", "Выберите город")
+            return
+        
+        for w in self.results_frame.winfo_children():
+            w.destroy()
+        
+        if city in self.clinics_db:
+            clinics = self.clinics_db[city]
+        else:
+            clinics = [{
+                "name": f"🏥 Офтальмологические клиники в {city}",
+                "address": f"📍 г. {city}",
+                "phone": "📞 Поиск на Яндекс.Картах",
+                "hours": "🕐 Нажмите для поиска",
+                "url": f"https://yandex.ru/maps/?text=офтальмологическая+клиника+{city}"
+            }]
+        
+        tk.Label(self.results_frame, text=f"🔍 Найдено: {len(clinics)} клиник",
+                font=('Segoe UI', 12, 'bold'), bg=self.colors['bg'], fg=self.colors['success']).pack(pady=8)
+        
+        for c in clinics:
+            card = tk.Frame(self.results_frame, bg=self.colors['card_bg'])
+            card.pack(fill=tk.X, pady=6, padx=5, ipady=8)
+            
+            tk.Label(card, text=c['name'], font=('Segoe UI', 11, 'bold'),
+                    bg=self.colors['card_bg'], fg=self.colors['text'], anchor='w').pack(fill=tk.X, padx=12, pady=(8, 2))
+            tk.Label(card, text=c['address'], font=('Segoe UI', 10),
+                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
+            tk.Label(card, text=c['phone'], font=('Segoe UI', 10),
+                    bg=self.colors['card_bg'], fg=self.colors['info'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
+            tk.Label(card, text=c['hours'], font=('Segoe UI', 9),
+                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
+            
+            tk.Button(card, text="🗺️ Построить маршрут", font=('Segoe UI', 9),
+                     bg=self.colors['danger'], fg='white',
+                     command=lambda url=c['url']: webbrowser.open(url),
+                     cursor="hand2", relief=tk.FLAT).pack(pady=(8, 8), padx=12, fill=tk.X)
+        
+        tk.Button(self.results_frame, text="🔄 Поискать в другом городе", font=('Segoe UI', 10),
+                 bg=self.colors['info'], fg='white', command=self.show_clinics,
+                 cursor="hand2", relief=tk.FLAT, pady=8).pack(pady=10, fill=tk.X, padx=30)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EyeScanApp(root)
+    root.mainloop()
