@@ -1,5 +1,5 @@
 """
-EyeScan - Глаз следит за курсором мыши
+EyeScan - Полная версия со всеми городами России
 """
 
 import tkinter as tk
@@ -11,6 +11,172 @@ import math
 import webbrowser
 import random
 import time
+import urllib.request
+from PIL import Image, ImageTk
+import io
+import threading
+
+# ВСЕ ГОРОДА РОССИИ (более 100)
+ALL_RUSSIAN_CITIES = [
+    # Центральный федеральный округ
+    "Москва", "Санкт-Петербург", "Архангельск", "Белгород", "Брянск", "Владимир", "Вологда", 
+    "Воронеж", "Иваново", "Калуга", "Кострома", "Курск", "Липецк", "Орел", "Рязань", 
+    "Смоленск", "Тамбов", "Тверь", "Тула", "Ярославль",
+    # Приволжский федеральный округ
+    "Казань", "Нижний Новгород", "Самара", "Уфа", "Пермь", "Саратов", "Тольятти", "Ижевск",
+    "Ульяновск", "Киров", "Чебоксары", "Оренбург", "Пенза", "Набережные Челны", "Йошкар-Ола",
+    "Саранск", "Нижнекамск", "Дзержинск",
+    # Сибирский федеральный округ
+    "Новосибирск", "Омск", "Красноярск", "Барнаул", "Иркутск", "Кемерово", "Томск", "Новокузнецк",
+    "Чита", "Улан-Удэ", "Абакан", "Бийск", "Прокопьевск", "Норильск", "Братск", "Ангарск",
+    # Уральский федеральный округ
+    "Екатеринбург", "Челябинск", "Тюмень", "Магнитогорск", "Нижний Тагил", "Курган", "Сургут",
+    "Нижневартовск", "Златоуст", "Каменск-Уральский",
+    # Южный федеральный округ
+    "Ростов-на-Дону", "Волгоград", "Краснодар", "Астрахань", "Сочи", "Ставрополь", "Новороссийск",
+    "Таганрог", "Шахты", "Элиста", "Майкоп", "Нальчик", "Черкесск",
+    # Северо-Западный федеральный округ
+    "Калининград", "Мурманск", "Петрозаводск", "Сыктывкар", "Великий Новгород", "Псков",
+    "Северодвинск", "Ухта", "Воркута",
+    # Дальневосточный федеральный округ
+    "Владивосток", "Хабаровск", "Якутск", "Магадан", "Петропавловск-Камчатский", "Южно-Сахалинск",
+    "Комсомольск-на-Амуре", "Благовещенск", "Уссурийск", "Находка",
+    # Северо-Кавказский федеральный округ
+    "Грозный", "Махачкала", "Владикавказ", "Назрань", "Беслан", "Хасавюрт", "Дербент", "Каспийск"
+]
+
+# Реальные клиники для крупных городов
+REAL_CLINICS = {
+    "Москва": [
+        {"name": "НИИ глазных болезней им. Гельмгольца", 
+         "address": "ул. Садовая-Черногрязская, 14/19",
+         "phone": "+7 (495) 625-33-50",
+         "hours": "Пн-Пт: 8:00-20:00",
+         "rating": 4.9,
+         "url": "https://yandex.ru/maps/213/moscow/house/sadovaya-chernogryazskaya_ulitsa_14_19/"},
+        {"name": "МНТК Микрохирургия глаза им. Федорова", 
+         "address": "Бескудниковский б-р, 59А",
+         "phone": "+7 (499) 488-83-33",
+         "hours": "Пн-Пт: 9:00-19:00",
+         "rating": 4.9,
+         "url": "https://yandex.ru/maps/213/moscow/house/beskudnikovsky_boulevard_59a/"},
+        {"name": "Клиника 'Окулюс' на Цветном", 
+         "address": "Цветной б-р, 30/2",
+         "phone": "+7 (495) 788-80-68",
+         "hours": "Ежедневно: 9:00-21:00",
+         "rating": 4.7,
+         "url": "https://yandex.ru/maps/213/moscow/house/tsvetnoy_boulevard_30_2/"}
+    ],
+    "Санкт-Петербург": [
+        {"name": "СПб НИИ уха, горла, носа и речи", 
+         "address": "ул. Бронницкая, 9",
+         "phone": "+7 (812) 316-85-70",
+         "hours": "Пн-Пт: 8:30-17:30",
+         "rating": 4.8,
+         "url": "https://yandex.ru/maps/2/saint-petersburg/house/bronnitskaya_ulitsa_9/"},
+        {"name": "Клиника 'Эксимер'", 
+         "address": "Аптекарский пр-т, 5",
+         "phone": "+7 (812) 332-50-60",
+         "hours": "Пн-Сб: 9:00-21:00",
+         "rating": 4.9,
+         "url": "https://yandex.ru/maps/2/saint-petersburg/house/aptekarsky_prospekt_5/"},
+        {"name": "МНТК Микрохирургия глаза (СПб филиал)", 
+         "address": "пр. Просвещения, 47",
+         "phone": "+7 (812) 558-48-88",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.8,
+         "url": "https://yandex.ru/maps/2/saint-petersburg/house/prospekt_prosveshcheniya_47/"}
+    ],
+    "Новосибирск": [
+        {"name": "Новосибирский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "ул. Бориса Богаткова, 258/1",
+         "phone": "+7 (383) 315-99-55",
+         "hours": "Пн-Пт: 8:00-19:00",
+         "rating": 4.8,
+         "url": "https://yandex.ru/maps/65/novosibirsk/house/borisa_bogatkova_ulitsa_258_1/"}
+    ],
+    "Екатеринбург": [
+        {"name": "МНТК Микрохирургия глаза (Екатеринбург)", 
+         "address": "ул. Бардина, 4А",
+         "phone": "+7 (343) 344-22-22",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.7,
+         "url": "https://yandex.ru/maps/54/yekaterinburg/house/bardina_ulitsa_4a/"}
+    ],
+    "Казань": [
+        {"name": "Клиника 'Офтальма'", 
+         "address": "ул. Достоевского, 55",
+         "phone": "+7 (843) 236-70-70",
+         "hours": "Пн-Сб: 9:00-20:00",
+         "rating": 4.6,
+         "url": "https://yandex.ru/maps/43/kazan/house/dostoevskogo_ulitsa_55/"}
+    ],
+    "Нижний Новгород": [
+        {"name": "Нижегородский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "ул. Родионова, 190",
+         "phone": "+7 (831) 465-88-88",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.7,
+         "url": "https://yandex.ru/maps/47/nizhny_novgorod/house/ulitsa_rodionova_190/"}
+    ],
+    "Самара": [
+        {"name": "Самарская областная офтальмологическая больница", 
+         "address": "ул. Ново-Садовая, 158",
+         "phone": "+7 (846) 263-15-15",
+         "hours": "Пн-Пт: 8:00-20:00",
+         "rating": 4.5,
+         "url": "https://yandex.ru/maps/51/samara/house/novo-sadovaya_ulitsa_158/"}
+    ],
+    "Ростов-на-Дону": [
+        {"name": "Ростовский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "пр-т Ворошиловский, 105",
+         "phone": "+7 (863) 223-45-45",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.6,
+         "url": "https://yandex.ru/maps/39/rostov-na-donu/house/voroshilovsky_prospekt_105/"}
+    ],
+    "Уфа": [
+        {"name": "Уфимский НИИ глазных болезней", 
+         "address": "ул. Пушкина, 90",
+         "phone": "+7 (347) 272-30-79",
+         "hours": "Пн-Пт: 8:00-17:00",
+         "rating": 4.7,
+         "url": "https://yandex.ru/maps/172/ufa/house/ulitsa_pushkina_90/"}
+    ],
+    "Красноярск": [
+        {"name": "Красноярский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "ул. Коломенская, 26",
+         "phone": "+7 (391) 220-20-20",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.5,
+         "url": "https://yandex.ru/maps/62/krasnoyarsk/house/kolomenskaya_ulitsa_26/"}
+    ],
+    "Пермь": [
+        {"name": "Пермская краевая офтальмологическая больница", 
+         "address": "ул. Луначарского, 95",
+         "phone": "+7 (342) 212-92-92",
+         "hours": "Пн-Пт: 8:00-19:00",
+         "rating": 4.5,
+         "url": "https://yandex.ru/maps/50/perm/house/ulitsa_lunacharskogo_95/"}
+    ],
+    "Волгоград": [
+        {"name": "Волгоградский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "ул. Землячки, 74",
+         "phone": "+7 (8442) 43-33-33",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.5,
+         "url": "https://yandex.ru/maps/56/volgograd/house/ulitsa_zemlyachki_74/"}
+    ],
+    "Краснодар": [
+        {"name": "Краснодарский филиал МНТК 'Микрохирургия глаза'", 
+         "address": "ул. Красных Партизан, 6",
+         "phone": "+7 (861) 210-00-50",
+         "hours": "Пн-Пт: 9:00-18:00",
+         "rating": 4.6,
+         "url": "https://yandex.ru/maps/38/krasnodar/house/ulitsa_krasnykh_partizan_6/"}
+    ]
+}
+
 
 class Database:
     def __init__(self):
@@ -81,91 +247,63 @@ class Database:
 
 
 class TrackingEye(tk.Canvas):
-    """Глаз, который следит за курсором мыши"""
-    
     def __init__(self, parent, size=90):
         super().__init__(parent, width=size, height=size, highlightthickness=0, bg=parent.cget('bg'))
         self.size = size
         self.center_x = size // 2
         self.center_y = size // 2
-        self.max_offset = 12  # Максимальное смещение зрачка
+        self.max_offset = 12
         
-        # Рисуем глаз
         self.draw_eye()
         
-        # Привязываем движение мыши
         self.bind("<Motion>", self.on_mouse_move)
-        # Также следим за движением мыши на родительском виджете
         parent.bind("<Motion>", self.on_mouse_move)
     
     def draw_eye(self):
         self.delete("all")
         
-        # Белок глаза
         self.create_oval(self.center_x-38, self.center_y-33, self.center_x+38, self.center_y+33, 
                         fill='white', outline='#3b82f6', width=4)
-        
-        # Радужка (внешняя)
         self.iris = self.create_oval(self.center_x-16, self.center_y-14, self.center_x+16, self.center_y+14, 
                                      fill='#3b82f6', outline='#2563eb', width=2)
-        
-        # Зрачок (будет двигаться)
         self.pupil = self.create_oval(self.center_x-7, self.center_y-6, self.center_x+7, self.center_y+6, 
                                       fill='#1e3a8a')
-        
-        # Блик
         self.create_oval(self.center_x-3, self.center_y-10, self.center_x+2, self.center_y-5, fill='white')
         
-        # Верхние ресницы для красоты
-        self.create_line(self.center_x-38, self.center_y-33, self.center_x-48, self.center_y-43, 
-                        width=3, fill='#3b82f6')
-        self.create_line(self.center_x-28, self.center_y-36, self.center_x-36, self.center_y-48, 
-                        width=3, fill='#3b82f6')
-        self.create_line(self.center_x+38, self.center_y-33, self.center_x+48, self.center_y-43, 
-                        width=3, fill='#3b82f6')
-        self.create_line(self.center_x+28, self.center_y-36, self.center_x+36, self.center_y-48, 
-                        width=3, fill='#3b82f6')
+        self.create_line(self.center_x-38, self.center_y-33, self.center_x-48, self.center_y-43, width=3, fill='#3b82f6')
+        self.create_line(self.center_x-28, self.center_y-36, self.center_x-36, self.center_y-48, width=3, fill='#3b82f6')
+        self.create_line(self.center_x+38, self.center_y-33, self.center_x+48, self.center_y-43, width=3, fill='#3b82f6')
+        self.create_line(self.center_x+28, self.center_y-36, self.center_x+36, self.center_y-48, width=3, fill='#3b82f6')
     
     def on_mouse_move(self, event):
-        # Получаем координаты курсора относительно холста
         x = event.x
         y = event.y
         
-        # Если курсор за пределами холста, используем центр
         if x < 0 or x > self.size or y < 0 or y > self.size:
-            # Возвращаем зрачок в центр
             self.move_pupil(self.center_x, self.center_y)
             return
         
-        # Вычисляем направление от центра к курсору
         dx = x - self.center_x
         dy = y - self.center_y
         
-        # Нормализуем вектор и ограничиваем смещение
         distance = math.sqrt(dx*dx + dy*dy)
         if distance > 0:
             dx = dx / distance
             dy = dy / distance
         
-        # Смещаем зрачок
         offset_x = int(dx * self.max_offset)
         offset_y = int(dy * self.max_offset)
         
-        # Ограничиваем, чтобы зрачок не выходил за пределы радужки
         offset_x = max(-10, min(10, offset_x))
         offset_y = max(-8, min(8, offset_y))
         
-        # Двигаем зрачок
         self.move_pupil(self.center_x + offset_x, self.center_y + offset_y)
     
     def move_pupil(self, new_x, new_y):
-        """Перемещает зрачок в указанные координаты"""
         self.coords(self.pupil, new_x-7, new_y-6, new_x+7, new_y+6)
 
 
 class ColorTest(tk.Frame):
-    """Тест на цветовосприятие"""
-    
     def __init__(self, parent, on_complete):
         super().__init__(parent, bg='#0f172a')
         self.on_complete = on_complete
@@ -173,7 +311,7 @@ class ColorTest(tk.Frame):
         self.answers = []
         
         self.questions = [
-            {"text": "Какую цифру вы видите на цветных кругах?", "correct": "12", 
+            {"text": "Какую цифру вы видите?", "correct": "12", 
              "options": ["12", "3", "8", "96"], "colors": ["#FF0000", "#00FF00", "#0000FF", "#FFFF00"], "value": "12"},
             {"text": "Какую цифру вы видите?", "correct": "8", 
              "options": ["8", "3", "5", "2"], "colors": ["#FF6347", "#4682B4", "#32CD32", "#FFD700"], "value": "8"},
@@ -181,14 +319,14 @@ class ColorTest(tk.Frame):
              "options": ["3", "8", "5", "2"], "colors": ["#FF4500", "#1E90FF", "#DC143C", "#FF69B4"], "value": "3"},
             {"text": "Какое число вы видите?", "correct": "96", 
              "options": ["96", "69", "6", "9"], "colors": ["#8B0000", "#006400", "#00008B", "#800080"], "value": "96"},
+            {"text": "Какую цифру вы видите?", "correct": "5", 
+             "options": ["5", "2", "8", "3"], "colors": ["#FF1493", "#00CED1", "#FF8C00", "#9400D3"], "value": "5"},
             {"text": "Какую фигуру вы видите?", "correct": "Треугольник", 
              "options": ["Треугольник", "Круг", "Квадрат", "Ромб"], "colors": ["#FF0000", "#00FF00", "#0000FF", "#FF00FF"], "shape": "triangle"},
             {"text": "Какую фигуру вы видите?", "correct": "Круг", 
              "options": ["Круг", "Треугольник", "Квадрат", "Ромб"], "colors": ["#FF6347", "#32CD32", "#FFD700", "#9B59B6"], "shape": "circle"},
             {"text": "Какую фигуру вы видите?", "correct": "Квадрат", 
              "options": ["Квадрат", "Круг", "Треугольник", "Ромб"], "colors": ["#FF4500", "#1E90FF", "#DC143C", "#FF69B4"], "shape": "square"},
-            {"text": "Какую фигуру вы видите?", "correct": "Ромб", 
-             "options": ["Ромб", "Круг", "Квадрат", "Треугольник"], "colors": ["#8B0000", "#006400", "#00008B", "#800080"], "shape": "diamond"},
         ]
         
         self.setup_ui()
@@ -230,9 +368,6 @@ class ColorTest(tk.Frame):
             self.canvas.create_oval(pos-18, 52, pos+18, 88, fill='#FF4500', outline='white', width=2)
         elif shape_type == "square":
             self.canvas.create_rectangle(pos-18, 52, pos+18, 88, fill='#FF4500', outline='white', width=2)
-        elif shape_type == "diamond":
-            points = [pos, 52, pos+18, 70, pos, 88, pos-18, 70]
-            self.canvas.create_polygon(points, fill='#FF4500', outline='white', width=2)
     
     def show_question(self):
         q = self.questions[self.current_q]
@@ -363,7 +498,7 @@ class EyeScanApp:
     def __init__(self, root):
         self.root = root
         self.root.title("EyeScan")
-        self.root.geometry("480x850")
+        self.root.geometry("480x900")
         self.root.configure(bg='#0f172a')
         self.root.overrideredirect(True)
         
@@ -376,25 +511,6 @@ class EyeScanApp:
             'success': '#10b981', 'warning': '#f59e0b', 'danger': '#ef4444',
             'info': '#06b6d4', 'purple': '#8b5cf6', 'pink': '#ec4899',
             'text': '#f1f5f9', 'text_light': '#94a3b8',
-        }
-        
-        self.all_cities = ["Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань"]
-        
-        self.clinics_db = {
-            "Москва": [
-                {"name": "НИИ глазных болезней им. Гельмгольца", 
-                 "address": "ул. Садовая-Черногрязская, 14/19",
-                 "phone": "+7 (495) 625-33-50",
-                 "hours": "Пн-Пт: 8:00-20:00",
-                 "url": "https://yandex.ru/maps/213/moscow/house/sadovaya-chernogryazskaya_ulitsa_14_19/"}
-            ],
-            "Санкт-Петербург": [
-                {"name": "СПб НИИ уха, горла, носа и речи", 
-                 "address": "ул. Бронницкая, 9",
-                 "phone": "+7 (812) 316-85-70",
-                 "hours": "Пн-Пт: 8:30-17:30",
-                 "url": "https://yandex.ru/maps/2/saint-petersburg/house/bronnitskaya_ulitsa_9/"}
-            ]
         }
         
         self.create_title_bar()
@@ -465,7 +581,6 @@ class EyeScanApp:
         logo_frame = tk.Frame(self.current_frame, bg=self.colors['bg'])
         logo_frame.pack(pady=(0, 15))
         
-        # Анимированный следящий глаз
         self.tracking_eye = TrackingEye(logo_frame, size=90)
         self.tracking_eye.pack()
         
@@ -750,11 +865,11 @@ class EyeScanApp:
         
         self.city_var = tk.StringVar(value=self.db.get_user_city())
         city_combo = ttk.Combobox(city_frame, textvariable=self.city_var,
-                                  values=self.all_cities, font=('Segoe UI', 11),
-                                  state='readonly', width=30)
+                                  values=ALL_RUSSIAN_CITIES, font=('Segoe UI', 11),
+                                  state='readonly', width=35)
         city_combo.pack(pady=5, padx=20)
         
-        tk.Label(city_frame, text=f"📋 Всего городов: {len(self.all_cities)}", 
+        tk.Label(city_frame, text=f"📋 Всего городов: {len(ALL_RUSSIAN_CITIES)}", 
                 font=('Segoe UI', 9), bg=self.colors['card_bg'], fg=self.colors['text_light']).pack(pady=5)
         
         tk.Button(self.current_frame, text="🔍 НАЙТИ КЛИНИКИ", font=('Segoe UI', 12, 'bold'),
@@ -777,41 +892,71 @@ class EyeScanApp:
         for w in self.results_frame.winfo_children():
             w.destroy()
         
-        if city in self.clinics_db:
-            clinics = self.clinics_db[city]
+        if city in REAL_CLINICS:
+            clinics = REAL_CLINICS[city]
         else:
             clinics = [{
                 "name": f"🏥 Офтальмологические клиники в {city}",
                 "address": f"📍 г. {city}",
                 "phone": "📞 Поиск на Яндекс.Картах",
                 "hours": "🕐 Нажмите для поиска",
+                "rating": 4.0,
                 "url": f"https://yandex.ru/maps/?text=офтальмологическая+клиника+{city}"
             }]
         
         tk.Label(self.results_frame, text=f"🔍 Найдено: {len(clinics)} клиник",
                 font=('Segoe UI', 12, 'bold'), bg=self.colors['bg'], fg=self.colors['success']).pack(pady=8)
         
+        canvas = tk.Canvas(self.results_frame, bg=self.colors['bg'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(self.results_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=self.colors['bg'])
+        
+        scrollable_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=450)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
         for c in clinics:
-            card = tk.Frame(self.results_frame, bg=self.colors['card_bg'])
+            card = tk.Frame(scrollable_frame, bg=self.colors['card_bg'])
             card.pack(fill=tk.X, pady=6, padx=5, ipady=8)
             
-            tk.Label(card, text=c['name'], font=('Segoe UI', 11, 'bold'),
-                    bg=self.colors['card_bg'], fg=self.colors['text'], anchor='w').pack(fill=tk.X, padx=12, pady=(8, 2))
+            # Название и рейтинг
+            header_card = tk.Frame(card, bg=self.colors['card_bg'])
+            header_card.pack(fill=tk.X, padx=10, pady=(8, 5))
+            
+            tk.Label(header_card, text=c['name'], font=('Segoe UI', 11, 'bold'),
+                    bg=self.colors['card_bg'], fg=self.colors['text'], anchor='w').pack(side=tk.LEFT)
+            
+            stars = "⭐" * int(c.get('rating', 4))
+            tk.Label(header_card, text=stars, font=('Segoe UI', 9), bg=self.colors['card_bg'], 
+                    fg='#f59e0b').pack(side=tk.RIGHT)
+            
             tk.Label(card, text=c['address'], font=('Segoe UI', 10),
-                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
-            tk.Label(card, text=c['phone'], font=('Segoe UI', 10),
-                    bg=self.colors['card_bg'], fg=self.colors['info'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
+                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=10, pady=2)
+            
+            phone_label = tk.Label(card, text=c['phone'], font=('Segoe UI', 10),
+                                  bg=self.colors['card_bg'], fg=self.colors['info'], anchor='w', cursor='hand2')
+            phone_label.pack(fill=tk.X, padx=10, pady=2)
+            phone_label.bind("<Button-1>", lambda e, p=c['phone']: self.copy_to_clipboard(p))
+            
             tk.Label(card, text=c['hours'], font=('Segoe UI', 9),
-                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=12, pady=1)
+                    bg=self.colors['card_bg'], fg=self.colors['text_light'], anchor='w').pack(fill=tk.X, padx=10, pady=2)
             
             tk.Button(card, text="🗺️ Построить маршрут", font=('Segoe UI', 9),
                      bg=self.colors['danger'], fg='white',
                      command=lambda url=c['url']: webbrowser.open(url),
-                     cursor="hand2", relief=tk.FLAT).pack(pady=(8, 8), padx=12, fill=tk.X)
+                     cursor="hand2", relief=tk.FLAT).pack(pady=(8, 8), padx=10, fill=tk.X)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
         
         tk.Button(self.results_frame, text="🔄 Поискать в другом городе", font=('Segoe UI', 10),
                  bg=self.colors['info'], fg='white', command=self.show_clinics,
                  cursor="hand2", relief=tk.FLAT, pady=8).pack(pady=10, fill=tk.X, padx=30)
+    
+    def copy_to_clipboard(self, text):
+        self.root.clipboard_clear()
+        self.root.clipboard_append(text)
+        messagebox.showinfo("Скопировано", "Номер телефона скопирован в буфер обмена")
 
 
 if __name__ == "__main__":
