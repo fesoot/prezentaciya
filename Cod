@@ -1,0 +1,103 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import math, random, time, webbrowser
+
+class EyeScan:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("EyeScan")
+        self.root.geometry("400x700")
+        self.root.configure(bg='#0f172a')
+        self.main_frame = tk.Frame(self.root, bg='#0f172a')
+        self.main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.show_menu()
+        self.root.mainloop()
+    
+    def clear(self):
+        for w in self.main_frame.winfo_children():
+            w.destroy()
+    
+    def show_menu(self):
+        self.clear()
+        tk.Label(self.main_frame, text="👁️ EyeScan", font=('Arial', 24, 'bold'), bg='#0f172a', fg='#3b82f6').pack(pady=10)
+        for text, cmd in [("🎨 Цветовосприятие", self.color_test), ("👁️ Острота зрения", self.acuity_test), ("⭐ Астигматизм", self.astigmatism_test), ("🏥 Клиники", self.clinics)]:
+            tk.Button(self.main_frame, text=text, font=('Arial', 12), bg='#1e293b', fg='white', command=cmd, relief=tk.FLAT, pady=8).pack(fill=tk.X, pady=5)
+    
+    def color_test(self):
+        self.clear()
+        self.answers, self.q = [], 0
+        self.questions = [("12", ["12","3","8","96"]), ("8", ["8","3","5","2"]), ("3", ["3","8","5","2"]), ("96", ["96","69","6","9"]), ("5", ["5","2","8","3"])]
+        self.show_q()
+    
+    def show_q(self):
+        if self.q >= len(self.questions): return self.color_result()
+        self.clear()
+        tk.Label(self.main_frame, text=f"Вопрос {self.q+1}/5", font=('Arial', 10), bg='#0f172a', fg='#94a3b8').pack()
+        c = self.questions[self.q][0]
+        f = tk.Frame(self.main_frame, bg='#1e293b'); f.pack(pady=10)
+        canvas = tk.Canvas(f, width=350, height=120, bg='#1e293b', highlightthickness=0); canvas.pack()
+        for i, col in enumerate(['#FF0000','#00FF00','#0000FF','#FFFF00']):
+            x = 50 + i*85
+            canvas.create_oval(x-30, 20, x+30, 100, fill=col, outline='white')
+            canvas.create_text(x, 60, text=c, font=('Arial', 24, 'bold'), fill='black')
+        for i, opt in enumerate(self.questions[self.q][1]):
+            tk.Button(self.main_frame, text=opt, font=('Arial', 11), bg='#1e293b', fg='white', command=lambda o=opt: self.answer(o), width=10).pack(side=tk.LEFT, padx=5)
+        tk.Button(self.main_frame, text="← Назад", command=self.show_menu, bg='#ef4444', fg='white', relief=tk.FLAT).pack(pady=10)
+    
+    def answer(self, a):
+        self.answers.append(a)
+        self.q += 1
+        self.show_q()
+    
+    def color_result(self):
+        correct = sum(1 for i,a in enumerate(self.answers) if a == self.questions[i][0])
+        messagebox.showinfo("Результат", f"Правильно: {correct}/5\n{('✅ Норма' if correct>=4 else '⚠️ Проверьте зрение')}")
+        self.show_menu()
+    
+    def acuity_test(self):
+        self.clear()
+        tk.Label(self.main_frame, text="👁️ Острота зрения", font=('Arial', 14, 'bold'), bg='#0f172a', fg='white').pack()
+        tk.Label(self.main_frame, text="33 см от глаз", font=('Arial', 10), bg='#0f172a', fg='#94a3b8').pack()
+        for letters, acuity in [("Ш Б",1.0),("М Н К",0.9),("Ы М Б Ш",0.8),("Б Ы Н К",0.7),("Н К И М",0.6)]:
+            btn = tk.Button(self.main_frame, text=letters, font=('Arial', int(24/acuity)), bg='white', fg='black', command=lambda a=acuity: self.acuity_result(a))
+            btn.pack(pady=5)
+        tk.Button(self.main_frame, text="← Назад", command=self.show_menu, bg='#ef4444', fg='white', relief=tk.FLAT).pack(pady=10)
+    
+    def acuity_result(self, a):
+        messagebox.showinfo("Результат", f"Острота зрения: {a}\n{'✅ Норма' if a>=0.8 else '⚠️ Нужна консультация'}")
+        self.show_menu()
+    
+    def astigmatism_test(self):
+        self.clear()
+        tk.Label(self.main_frame, text="⭐ Астигматизм", font=('Arial', 14, 'bold'), bg='#0f172a', fg='white').pack()
+        f = tk.Frame(self.main_frame, bg='white', width=300, height=300); f.pack(pady=10); f.pack_propagate(False)
+        c = tk.Canvas(f, width=300, height=300, bg='white'); c.pack()
+        for i in range(24):
+            a = i*15*math.pi/180
+            c.create_line(150,150, 150+140*math.cos(a), 150+140*math.sin(a), width=2, fill='black')
+        c.create_oval(140,140,160,160, fill='white', outline='black')
+        tk.Button(self.main_frame, text="✅ Да, одинаковые", command=lambda: self.astigmatism_result(True), bg='#10b981', fg='white').pack(side=tk.LEFT, padx=10)
+        tk.Button(self.main_frame, text="❌ Нет, разные", command=lambda: self.astigmatism_result(False), bg='#ef4444', fg='white').pack(side=tk.LEFT, padx=10)
+        tk.Button(self.main_frame, text="← Назад", command=self.show_menu, bg='#3b82f6', fg='white', relief=tk.FLAT).pack(pady=10)
+    
+    def astigmatism_result(self, same):
+        messagebox.showinfo("Результат", "✅ Норма" if same else "⚠️ Возможен астигматизм")
+        self.show_menu()
+    
+    def clinics(self):
+        self.clear()
+        tk.Label(self.main_frame, text="🏥 Клиники", font=('Arial', 14, 'bold'), bg='#0f172a', fg='white').pack()
+        cities = ["Москва", "СПб", "Новосибирск", "Екатеринбург", "Казань"]
+        self.city_var = tk.StringVar(value="Москва")
+        ttk.Combobox(self.main_frame, textvariable=self.city_var, values=cities).pack(pady=5)
+        tk.Button(self.main_frame, text="🔍 Найти", command=self.search_clinic, bg='#ef4444', fg='white', relief=tk.FLAT).pack(pady=10)
+        tk.Button(self.main_frame, text="← Назад", command=self.show_menu, bg='#3b82f6', fg='white', relief=tk.FLAT).pack()
+    
+    def search_clinic(self):
+        city = self.city_var.get()
+        url = f"https://yandex.ru/maps/?text=офтальмологическая+клиника+{city}"
+        webbrowser.open(url)
+        messagebox.showinfo("Поиск", f"Открыт поиск клиник в {city}")
+
+if __name__ == "__main__":
+    EyeScan()
